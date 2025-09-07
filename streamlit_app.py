@@ -20,6 +20,7 @@ if st.button("Ask Gemini"):
     if user_prompt.strip():
         try:
             response = requests.post(
+                    #We are using gemini from ai studio
                 f"{FASTAPI_URL}/ask-gemini",
                 json={"prompt": user_prompt}
             )
