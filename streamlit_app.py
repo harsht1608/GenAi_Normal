@@ -4,7 +4,7 @@ import requests
 # FastAPI backend URL
 FASTAPI_URL = "http://127.0.0.1:8000"  # Update this if running elsewhere
 
-# App Title
+# App Title.
 st.set_page_config(page_title="Gemini Chatbot", page_icon="🤖", layout="centered")
 st.title("🤖 Gemini API Chatbot")
 
