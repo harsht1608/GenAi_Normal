@@ -4,7 +4,7 @@ import requests
 # FastAPI backend URL
 FASTAPI_URL = "http://127.0.0.1:8000"  # Update if running elsewhere
 
-st.set_page_config(page_title="Gemini Chatbot + DevOps", page_icon="🤖", layout="centered")
+st.set_page_config(page_title="Gemini API powered Chatbot Basic Level", page_icon="🤖", layout="centered")
 st.title("🤖 Gemini + DevOps Helper")
 
 # Tabs for Chatbot and DevOps tools
