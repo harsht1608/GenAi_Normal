@@ -8,6 +8,7 @@ import logging
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 import time
+from datetime import datetime
 
 # --- Load env ---
 load_dotenv()
@@ -15,7 +16,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise RuntimeError("GEMINI_API_KEY environment variable not set")
 
-# Optional configuration
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-1.5-flash")
 ALLOWED_MODELS = [
     m.strip()
@@ -23,29 +23,33 @@ ALLOWED_MODELS = [
     if m.strip()
 ]
 
-# Rate limiter config (simple in-memory)
-RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "60"))      # requests per window
-RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
-
-# CORS origins (comma separated), default '*' for dev
+RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "60"))
+RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
 
-# --- Configure Gemini client ---
+# --- Configure Gemini ---
 genai.configure(api_key=GEMINI_API_KEY)
 
 # --- Logging ---
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log_dir = "logs"
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, f"backend_{datetime.now().strftime('%Y%m%d')}.log")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(log_file, encoding="utf-8"),
+    ],
+)
 logger = logging.getLogger("gemini-backend")
 
 # --- FastAPI app ---
 app = FastAPI(title="Gemini Proxy API")
 
 # CORS middleware
-if CORS_ORIGINS.strip() == "*":
-    allow = ["*"]
-else:
-    allow = [o.strip() for o in CORS_ORIGINS.split(",")]
-
+allow = ["*"] if CORS_ORIGINS.strip() == "*" else [o.strip() for o in CORS_ORIGINS.split(",")]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow,
@@ -54,14 +58,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Simple in-memory rate limiter store ---
-_client_requests = {}  # { client_ip: [timestamp1, timestamp2, ...] }
+# --- Rate limiter ---
+_client_requests = {}
 
 def is_rate_limited(client_ip: str) -> bool:
     now = time.time()
     window_start = now - RATE_LIMIT_WINDOW
     reqs = _client_requests.get(client_ip, [])
-    # keep only timestamps within window
     reqs = [t for t in reqs if t > window_start]
     if len(reqs) >= RATE_LIMIT_MAX:
         _client_requests[client_ip] = reqs
@@ -81,6 +84,28 @@ class AskResponse(BaseModel):
     response: str
     model: str
 
+class DevOpsRequest(BaseModel):
+    content: str
+    model: Optional[str] = None
+
+class DevOpsResponse(BaseModel):
+    suggestions: str
+    model: str
+
+# --- Helpers ---
+def call_gemini(prompt: str, model_name: Optional[str] = None) -> str:
+    model_name = model_name or DEFAULT_MODEL
+    if model_name not in ALLOWED_MODELS:
+        raise HTTPException(status_code=400, detail=f"Model '{model_name}' not allowed.")
+
+    try:
+        model = genai.GenerativeModel(model_name)
+        resp = model.generate_content([prompt])
+        return getattr(resp, "text", str(resp))
+    except Exception as e:
+        logger.exception("Gemini call failed")
+        raise HTTPException(status_code=500, detail=f"Gemini error: {str(e)}")
+
 # --- Health check ---
 @app.get("/health")
 def health():
@@ -90,64 +115,28 @@ def health():
 @app.post("/ask-gemini", response_model=AskResponse)
 async def ask_gemini(request: Request, payload: AskRequest):
     client_ip = request.client.host if request.client else "unknown"
-    # rate limit
     if is_rate_limited(client_ip):
-        logger.warning("Rate limit exceeded for %s", client_ip)
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+        raise HTTPException(status_code=429, detail="Rate limit exceeded.")
 
-    model_name = payload.model or DEFAULT_MODEL
-    if model_name not in ALLOWED_MODELS:
-        raise HTTPException(status_code=400, detail=f"Model '{model_name}' not allowed. Allowed: {ALLOWED_MODELS}")
+    logger.info("Prompt from %s len=%d model=%s", client_ip, len(payload.prompt), payload.model or DEFAULT_MODEL)
+    text = call_gemini(payload.prompt, payload.model)
+    return AskResponse(response=text, model=payload.model or DEFAULT_MODEL)
 
-    logger.info("Prompt received (client=%s) len=%d model=%s", client_ip, len(payload.prompt), model_name)
-    try:
-        model = genai.GenerativeModel(model_name)
+# --- DevOps Endpoints ---
+@app.post("/analyze-logs", response_model=DevOpsResponse)
+async def analyze_logs(req: DevOpsRequest):
+    prompt = f"Analyze these logs and highlight errors, warnings, and possible fixes:\n\n{req.content}"
+    text = call_gemini(prompt, req.model)
+    return DevOpsResponse(suggestions=text, model=req.model or DEFAULT_MODEL)
 
-        # Build kwargs (if supported by client)
-        kwargs = {}
-        if payload.temperature is not None:
-            kwargs["temperature"] = float(payload.temperature)
-        if payload.max_output_tokens is not None:
-            kwargs["max_output_tokens"] = int(payload.max_output_tokens)
+@app.post("/optimize-docker", response_model=DevOpsResponse)
+async def optimize_docker(req: DevOpsRequest):
+    prompt = f"Review this Dockerfile and suggest optimizations, best practices, and security improvements:\n\n{req.content}"
+    text = call_gemini(prompt, req.model)
+    return DevOpsResponse(suggestions=text, model=req.model or DEFAULT_MODEL)
 
-        # Call the model
-        # NOTE: different versions of google.generativeai might return different structures.
-        # We try to extract text robustly.
-        raw_resp = model.generate_content([payload.prompt], **kwargs) if kwargs else model.generate_content([payload.prompt])
-
-        # response text extraction helpers (robust)
-        text = None
-        try:
-            # preferred: response.text (some client versions)
-            text = getattr(raw_resp, "text", None)
-        except Exception:
-            text = None
-
-        if not text:
-            try:
-                # fallback: look for candidates -> content -> parts[0].text
-                candidates = getattr(raw_resp, "candidates", None)
-                if not candidates and isinstance(raw_resp, dict):
-                    candidates = raw_resp.get("candidates")
-                if candidates:
-                    first = candidates[0]
-                    content = first.get("content") if isinstance(first, dict) else getattr(first, "content", None)
-                    if content:
-                        parts = content.get("parts") if isinstance(content, dict) else getattr(content, "parts", None)
-                        if parts and len(parts) > 0:
-                            first_part = parts[0]
-                            text = first_part.get("text") if isinstance(first_part, dict) else getattr(first_part, "text", None)
-            except Exception:
-                text = None
-
-        if not text:
-            # last fallback: stringify
-            text = str(raw_resp)
-
-        logger.info("Got response (client=%s) len=%d model=%s", client_ip, len(text), model_name)
-        return AskResponse(response=text, model=model_name)
-
-    except Exception as e:
-        logger.exception("Gemini call failed")
-        # Expose minimal info to client
-        raise HTTPException(status_code=500, detail=f"Failed to get response from Gemini: {str(e)}")
+@app.post("/fix-ci", response_model=DevOpsResponse)
+async def fix_ci(req: DevOpsRequest):
+    prompt = f"Analyze this CI/CD pipeline YAML and suggest improvements for reliability, caching, and efficiency:\n\n{req.content}"
+    text = call_gemini(prompt, req.model)
+    return DevOpsResponse(suggestions=text, model=req.model or DEFAULT_MODEL)
