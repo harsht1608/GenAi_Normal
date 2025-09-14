@@ -7,7 +7,7 @@ services:
       dockerfile: backend/Dockerfile
     container_name: gemini-backend
     env_file:
-      - .env.production    # put GEMINI_API_KEY, DEFAULT_MODEL etc here
+      - .env    # put GEMINI_API_KEY, DEFAULT_MODEL etc here
     environment:
       - PYTHONUNBUFFERED=1
     ports:
@@ -32,7 +32,7 @@ services:
       dockerfile: frontend/Dockerfile
     container_name: gemini-frontend
     env_file:
-      - .env.production
+      - .env
     ports:
       - "8501:8501"
     restart: unless-stopped
