@@ -161,12 +161,6 @@ docker-compose logs -f
 - Docker healthchecks
 - Resource monitoring
 
-## API Documentation
-
-Once running, access the API documentation:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
 ## Load Testing
 
 The system is configured to handle:
@@ -182,7 +176,3 @@ The system is configured to handle:
 3. Commit changes
 4. Push to branch
 5. Create Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
