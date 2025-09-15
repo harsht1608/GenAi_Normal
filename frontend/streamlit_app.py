@@ -5,7 +5,7 @@ import requests
 FASTAPI_URL = "http://127.0.0.1:8000"  # Update if running elsewhere
 
 st.set_page_config(page_title="Gemini API powered Chatbot Basic Level", page_icon="🤖", layout="centered")
-st.title("🤖 Gemini + DevOps Helper")
+st.title("🤖 Gemini AI Assistant")
 
 # Tabs for Chatbot and DevOps tools
 tab1, tab2 = st.tabs(["💬 Chatbot", "🛠️ DevOps Helpers"])
