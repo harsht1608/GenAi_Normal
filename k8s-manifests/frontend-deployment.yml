@@ -13,17 +13,23 @@ spec:
         app: frontend
     spec:
       containers:
-      - name: frontend
-        image: hashabc/genai_normal-frontend:latest
-        ports:
-        - containerPort: 8501
-        readinessProbe:
-          tcpSocket:
-            port: 8501
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        livenessProbe:
-          tcpSocket:
-            port: 8501
-          initialDelaySeconds: 15
-          periodSeconds: 20
+        - name: frontend
+          image: hashabc/frontend:latest
+          ports:
+            - containerPort: 8501
+          envFrom:
+            - secretRef:
+                name: gemini-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  selector:
+    app: frontend
+  ports:
+    - protocol: TCP
+      port: 8501
+      targetPort: 8501
+  type: ClusterIP
