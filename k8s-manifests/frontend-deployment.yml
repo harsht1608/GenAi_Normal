@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: frontend:latest
+        image: hashabc/genai_normal-frontend:latest
         ports:
         - containerPort: 8501
         readinessProbe:
