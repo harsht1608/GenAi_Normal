@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: backend
-        image: backend:latest
+        image: hashabc/genai_normal-backend:latest
         ports:
         - containerPort: 8000
         readinessProbe:
