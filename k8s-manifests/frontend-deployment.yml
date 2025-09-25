@@ -1,35 +1,37 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: frontend-deployment
+  name: gemini-frontend
+  labels:
+    app: gemini-frontend
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
-      app: frontend
+      app: gemini-frontend
   template:
     metadata:
       labels:
-        app: frontend
+        app: gemini-frontend
     spec:
       containers:
         - name: frontend
-          image: hashabc/frontend:latest
+          image: hashabc/genai_normal-frontend
+          imagePullPolicy: Always
           ports:
             - containerPort: 8501
           envFrom:
             - secretRef:
-                name: gemini-secret
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: frontend-service
-spec:
-  selector:
-    app: frontend
-  ports:
-    - protocol: TCP
-      port: 8501
-      targetPort: 8501
-  type: ClusterIP
+                name: gemini-frontend-env
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8501
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8501
+            initialDelaySeconds: 10
+            periodSeconds: 20

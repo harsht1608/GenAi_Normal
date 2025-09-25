@@ -1,25 +1,28 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend-deployment
+  name: gemini-backend
+  labels:
+    app: gemini-backend
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
-      app: backend
+      app: gemini-backend
   template:
     metadata:
       labels:
-        app: backend
+        app: gemini-backend
     spec:
       containers:
         - name: backend
-          image: hashabc/backend:latest
+          image: hashabc/genai_normal-backend
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
           envFrom:
             - secretRef:
-                name: gemini-secret
+                name: gemini-backend-env
           readinessProbe:
             httpGet:
               path: /health
@@ -32,16 +35,3 @@ spec:
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 20
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: backend-service
-spec:
-  selector:
-    app: backend
-  ports:
-    - protocol: TCP
-      port: 8000
-      targetPort: 8000
-  type: ClusterIP

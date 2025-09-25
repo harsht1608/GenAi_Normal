@@ -1,16 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx-deployment
+  name: gemini-nginx
+  labels:
+    app: gemini-nginx
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: nginx
+      app: gemini-nginx
   template:
     metadata:
       labels:
-        app: nginx
+        app: gemini-nginx
     spec:
       containers:
         - name: nginx
@@ -24,17 +26,45 @@ spec:
       volumes:
         - name: nginx-config
           configMap:
-            name: nginx-config
+            name: gemini-nginx-config
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: nginx-service
+  name: gemini-nginx
 spec:
   selector:
-    app: nginx
+    app: gemini-nginx
   ports:
     - protocol: TCP
       port: 80
       targetPort: 80
   type: LoadBalancer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gemini-nginx-config
+data:
+  nginx.conf: |
+    # Paste your nginx.conf content here or mount from file
+    # Example:
+    events {}
+    http {
+      upstream backend {
+        server gemini-backend:8000;
+      }
+      upstream frontend {
+        server gemini-frontend:8501;
+      }
+      server {
+        listen 80;
+        location /api/ {
+          proxy_pass http://backend;
+        }
+        location / {
+          proxy_pass http://frontend;
+        }
+      }
+    }
+---
