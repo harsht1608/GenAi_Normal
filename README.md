@@ -161,6 +161,23 @@ docker-compose logs -f
 - Docker healthchecks
 - Resource monitoring
 
+## To run this project smoothly
+- Just create a virtual environment by running in root folder( python -m venv venv )
+- After that run the command ( venv\Scripts\activate )
+- 
+    - Then go to backend folder and run ( pip install -r requirement.txt )
+    - And ( uvicorn main:app --host 0.0.0.0 --port 8000 )
+
+    - Then move to frontend folder and run ( pip install -r requirement.txt )
+    - And ( streamlit run streamlit_app.py )
+
+
+- JSON formatted logs
+- Log rotation configured
+- Health check endpoints
+- Docker healthchecks
+- Resource monitoring
+
 ## Load Testing
 
 The system is configured to handle:
