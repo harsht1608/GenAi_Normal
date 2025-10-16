@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gemini-config
+  namespace: gemini-app
+data:
+  DEFAULT_MODEL: gemini-2.0-flash
+  ALLOWED_MODELS: gemini-1.5-flash,gemini-1.5-pro,gemini-2.0-flash
+  CORS_ORIGINS: "*"
+  RATE_LIMIT_MAX: "60"
+  RATE_LIMIT_WINDOW: "60"

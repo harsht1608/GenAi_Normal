@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gemini-backend
+  namespace: gemini-app
+spec:
+  selector:
+    app: gemini-backend
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000

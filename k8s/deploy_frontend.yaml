@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gemini-frontend
+  namespace: gemini-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gemini-frontend
+  template:
+    metadata:
+      labels:
+        app: gemini-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: hashabc/genai_normal-frontend
+          ports:
+            - containerPort: 8501
+          envFrom:
+            - configMapRef:
+                name: gemini-config
+          env:
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gemini-secret
+                  key: GEMINI_API_KEY
+            - name: BACKEND_URL
+              value: "http://gemini-backend:8000"
