@@ -1,10 +1,9 @@
 # main.py
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
-# --- GROQ / OpenAI client (GROQ) ---
+# --- Multiple LLM clients ---
 from openai import OpenAI
-# --- OpenAI (commented out) ---
-# import google.generativeai as genai
+import google.generativeai as genai
 from dotenv import load_dotenv
 import os
 import logging
@@ -17,10 +16,13 @@ import json
 
 # --- Load env ---
 load_dotenv()
-# --- GEMINI (commented out) ---
+
+# --- GEMINI API Key and Client ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# if not GEMINI_API_KEY:
-#     raise RuntimeError("GEMINI_API_KEY environment variable not set")
+gemini_client = None
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_client = True
 
 # --- GROQ / OpenAI key and client ---
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -28,11 +30,11 @@ groq_client = None
 if GROQ_API_KEY:
     groq_client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
-# --- OpenAI key and client (commented out) ---
-# OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-# openai_client = None
-# if OPENAI_API_KEY:
-#     openai_client = OpenAI(api_key=OPENAI_API_KEY)
+# --- OpenAI key and client ---
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai_client = None
+if OPENAI_API_KEY:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-1.5-flash")
 ALLOWED_MODELS = [
@@ -45,8 +47,8 @@ RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "60"))
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
 
-# --- Configure Gemini (commented out) ---
-# genai.configure(api_key=GEMINI_API_KEY)
+# --- Configure Gemini ---
+# Already configured above in the if block
 
 # --- Logging ---
 log_dir = "logs"
@@ -97,61 +99,124 @@ class AskRequest(BaseModel):
     model: Optional[str] = None
     temperature: Optional[float] = None
     max_output_tokens: Optional[int] = None
+    llm: Optional[str] = None  # LLM selector: groq, openai, gemini
 
 class AskResponse(BaseModel):
     response: str
     model: str
+    llm: str
 
 class DevOpsRequest(BaseModel):
     content: str
     model: Optional[str] = None
+    llm: Optional[str] = None  # LLM selector: groq, openai, gemini
 
 class DevOpsResponse(BaseModel):
     suggestions: str
     model: str
+    llm: str
 
 class GenerationRequest(BaseModel):
     description: str
     model: Optional[str] = None
+    llm: Optional[str] = None  # LLM selector: groq, openai, gemini
 
 class GenerationResponse(BaseModel):
     code: str
     model: str
+    llm: str
 
 class SecurityRequest(BaseModel):
     requirements: str
     model: Optional[str] = None
+    llm: Optional[str] = None  # LLM selector: groq, openai, gemini
 
 class SecurityResponse(BaseModel):
     vulnerabilities: str
     recommendations: str
     model: str
+    llm: str
 
 # --- Helpers ---
-def call_groq(prompt: str, model_name: Optional[str] = None) -> str:
-    """Call GROQ/OpenAI Responses API via the `openai.OpenAI` client.
-    Falls back to returning an error if GROQ client not configured.
+
+def call_llm(prompt: str, llm_provider: str = "groq", model_name: Optional[str] = None) -> tuple:
+    """
+    Unified LLM caller that routes to the selected provider (groq, openai, or gemini).
+    Returns: (response_text, llm_used, model_used)
     """
     model_name = model_name or DEFAULT_MODEL
-    # NOTE: ALLOWED_MODELS check kept for parity with prior code
+    llm_provider = llm_provider or "groq"
+    
+    # Validate model
     if model_name not in ALLOWED_MODELS:
         raise HTTPException(status_code=400, detail=f"Model '{model_name}' not allowed.")
+    
+    # Route to the appropriate LLM
+    if llm_provider == "groq":
+        return call_groq(prompt, model_name)
+    elif llm_provider == "openai":
+        return call_openai(prompt, model_name)
+    elif llm_provider == "gemini":
+        return call_gemini(prompt, model_name)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown LLM provider: {llm_provider}")
 
+def call_groq(prompt: str, model_name: Optional[str] = None) -> tuple:
+    """Call GROQ/OpenAI Responses API via the `openai.OpenAI` client."""
+    model_name = model_name or DEFAULT_MODEL
+    
     if not groq_client:
         logger.error("GROQ client not configured (GROQ_API_KEY missing)")
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured on server")
 
     try:
-        # Use the Responses API - mirrors the boilerplate provided by the user
         resp = groq_client.responses.create(
             input=prompt,
             model=model_name,
         )
-        # Many SDK responses expose `output_text`; fall back to str(resp)
-        return getattr(resp, "output_text", str(resp))
+        text = getattr(resp, "output_text", str(resp))
+        return text, "groq", model_name
     except Exception as e:
         logger.exception("GROQ call failed")
         raise HTTPException(status_code=500, detail=f"GROQ error: {str(e)}")
+
+def call_openai(prompt: str, model_name: Optional[str] = None) -> tuple:
+    """Call OpenAI Chat Completions API."""
+    model_name = model_name or DEFAULT_MODEL
+    
+    if not openai_client:
+        logger.error("OpenAI client not configured (OPENAI_API_KEY missing)")
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured on server")
+
+    try:
+        resp = openai_client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        text = resp.choices[0].message.content
+        return text, "openai", model_name
+    except Exception as e:
+        logger.exception("OpenAI call failed")
+        raise HTTPException(status_code=500, detail=f"OpenAI error: {str(e)}")
+
+def call_gemini(prompt: str, model_name: Optional[str] = None) -> tuple:
+    """Call Google Gemini API."""
+    model_name = model_name or DEFAULT_MODEL
+    
+    if not gemini_client:
+        logger.error("Gemini client not configured (GEMINI_API_KEY missing)")
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured on server")
+
+    try:
+        model = genai.GenerativeModel(model_name)
+        resp = model.generate_content([prompt])
+        text = getattr(resp, "text", str(resp))
+        return text, "gemini", model_name
+    except Exception as e:
+        logger.exception("Gemini call failed")
+        raise HTTPException(status_code=500, detail=f"Gemini error: {str(e)}")
 
 # --- Security scanning helper ---
 def scan_security_vulnerabilities(requirements_content: str) -> str:
@@ -190,47 +255,7 @@ def scan_security_vulnerabilities(requirements_content: str) -> str:
         logger.exception("Security scan failed")
         return f"Error during security scan: {str(e)}"
 
-# --- Original OpenAI function (commented out) ---
-# def call_openai(prompt: str, model_name: Optional[str] = None) -> str:
-#     """Call OpenAI Chat Completions API via the `openai.OpenAI` client.
-#     Falls back to returning an error if OpenAI client not configured.
-#     """
-#     model_name = model_name or DEFAULT_MODEL
-#     # NOTE: ALLOWED_MODELS check kept for parity with prior code
-#     if model_name not in ALLOWED_MODELS:
-#         raise HTTPException(status_code=400, detail=f"Model '{model_name}' not allowed.")
-#
-#     if not openai_client:
-#         logger.error("OpenAI client not configured (OPENAI_API_KEY missing)")
-#         raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured on server")
-#
-#     try:
-#         # Use the Chat Completions API from OpenAI
-#         resp = openai_client.chat.completions.create(
-#             model=model_name,
-#             messages=[
-#                 {"role": "user", "content": prompt}
-#             ]
-#         )
-#         # Extract text from the first choice
-#         return resp.choices[0].message.content
-#     except Exception as e:
-#         logger.exception("OpenAI call failed")
-#         raise HTTPException(status_code=500, detail=f"OpenAI error: {str(e)}")
-
-# --- Original Gemini function kept for reference (commented) ---
-# def call_gemini(prompt: str, model_name: Optional[str] = None) -> str:
-#     model_name = model_name or DEFAULT_MODEL
-#     if model_name not in ALLOWED_MODELS:
-#         raise HTTPException(status_code=400, detail=f"Model '{model_name}' not allowed.")
-#
-#     try:
-#         model = genai.GenerativeModel(model_name)
-#         resp = model.generate_content([prompt])
-#         return getattr(resp, "text", str(resp))
-#     except Exception as e:
-#         logger.exception("Gemini call failed")
-#         raise HTTPException(status_code=500, detail=f"Gemini error: {str(e)}")
+# --- Original OpenAI and Gemini functions (commented out - using unified call_llm) ---
 
 # --- Health check ---
 @app.get("/health")
@@ -244,28 +269,32 @@ async def ask_gemini(request: Request, payload: AskRequest):
     if is_rate_limited(client_ip):
         raise HTTPException(status_code=429, detail="Rate limit exceeded.")
 
-    logger.info("Prompt from %s len=%d model=%s", client_ip, len(payload.prompt), payload.model or DEFAULT_MODEL)
-    text = call_groq(payload.prompt, payload.model)
-    return AskResponse(response=text, model=payload.model or DEFAULT_MODEL)
+    llm_provider = payload.llm or "groq"
+    logger.info("Prompt from %s len=%d model=%s llm=%s", client_ip, len(payload.prompt), payload.model or DEFAULT_MODEL, llm_provider)
+    text, llm_used, model_used = call_llm(payload.prompt, llm_provider, payload.model)
+    return AskResponse(response=text, model=model_used, llm=llm_used)
 
 # --- DevOps Endpoints ---
 @app.post("/analyze-logs", response_model=DevOpsResponse)
 async def analyze_logs(req: DevOpsRequest):
     prompt = f"Analyze these logs and highlight errors, warnings, and possible fixes:\n\n{req.content}"
-    text = call_groq(prompt, req.model)
-    return DevOpsResponse(suggestions=text, model=req.model or DEFAULT_MODEL)
+    llm_provider = req.llm or "groq"
+    text, llm_used, model_used = call_llm(prompt, llm_provider, req.model)
+    return DevOpsResponse(suggestions=text, model=model_used, llm=llm_used)
 
 @app.post("/optimize-docker", response_model=DevOpsResponse)
 async def optimize_docker(req: DevOpsRequest):
     prompt = f"Review this Dockerfile and suggest optimizations, best practices, and security improvements:\n\n{req.content}"
-    text = call_groq(prompt, req.model)
-    return DevOpsResponse(suggestions=text, model=req.model or DEFAULT_MODEL)
+    llm_provider = req.llm or "groq"
+    text, llm_used, model_used = call_llm(prompt, llm_provider, req.model)
+    return DevOpsResponse(suggestions=text, model=model_used, llm=llm_used)
 
 @app.post("/fix-ci", response_model=DevOpsResponse)
 async def fix_ci(req: DevOpsRequest):
     prompt = f"Analyze this CI/CD pipeline YAML and suggest improvements for reliability, caching, and efficiency:\n\n{req.content}"
-    text = call_groq(prompt, req.model)
-    return DevOpsResponse(suggestions=text, model=req.model or DEFAULT_MODEL)
+    llm_provider = req.llm or "groq"
+    text, llm_used, model_used = call_llm(prompt, llm_provider, req.model)
+    return DevOpsResponse(suggestions=text, model=model_used, llm=llm_used)
 
 # --- Code Generation Endpoints ---
 @app.post("/generate-dockerfile", response_model=GenerationResponse)
@@ -280,8 +309,9 @@ Include best practices for:
 - Layer caching optimization
 
 Provide only the Dockerfile content without explanations."""
-    code = call_groq(prompt, req.model)
-    return GenerationResponse(code=code, model=req.model or DEFAULT_MODEL)
+    llm_provider = req.llm or "groq"
+    code, llm_used, model_used = call_llm(prompt, llm_provider, req.model)
+    return GenerationResponse(code=code, model=model_used, llm=llm_used)
 
 @app.post("/generate-cicd", response_model=GenerationResponse)
 async def generate_cicd(req: GenerationRequest):
@@ -296,8 +326,9 @@ Include:
 - Notifications
 
 Provide the configuration file (GitHub Actions YAML, Jenkins, or GitLab CI) without explanations."""
-    code = call_groq(prompt, req.model)
-    return GenerationResponse(code=code, model=req.model or DEFAULT_MODEL)
+    llm_provider = req.llm or "groq"
+    code, llm_used, model_used = call_llm(prompt, llm_provider, req.model)
+    return GenerationResponse(code=code, model=model_used, llm=llm_used)
 
 @app.post("/generate-k8s", response_model=GenerationResponse)
 async def generate_k8s(req: GenerationRequest):
@@ -313,8 +344,9 @@ Include:
 - Resource limits
 
 Provide complete Kubernetes manifests without explanations."""
-    code = call_groq(prompt, req.model)
-    return GenerationResponse(code=code, model=req.model or DEFAULT_MODEL)
+    llm_provider = req.llm or "groq"
+    code, llm_used, model_used = call_llm(prompt, llm_provider, req.model)
+    return GenerationResponse(code=code, model=model_used, llm=llm_used)
 
 @app.post("/generate-iac", response_model=GenerationResponse)
 async def generate_iac(req: GenerationRequest):
@@ -329,8 +361,9 @@ Include:
 - Environment variables
 
 Provide Terraform or CloudFormation code without explanations."""
-    code = call_groq(prompt, req.model)
-    return GenerationResponse(code=code, model=req.model or DEFAULT_MODEL)
+    llm_provider = req.llm or "groq"
+    code, llm_used, model_used = call_llm(prompt, llm_provider, req.model)
+    return GenerationResponse(code=code, model=model_used, llm=llm_used)
 
 @app.post("/scan-security", response_model=SecurityResponse)
 async def scan_security(req: SecurityRequest):
@@ -338,7 +371,7 @@ async def scan_security(req: SecurityRequest):
     # First, run safety check
     vuln_summary = scan_security_vulnerabilities(req.requirements)
     
-    # Then use GROQ to analyze and recommend fixes
+    # Then use selected LLM to analyze and recommend fixes
     prompt = f"""Analyze these security scan results and provide remediation recommendations:
 
 SCAN RESULTS:
@@ -353,10 +386,12 @@ Provide:
 3. Recommended fixes and package updates
 4. Best practices for secure dependency management"""
     
-    recommendations = call_groq(prompt, req.model)
+    llm_provider = req.llm or "groq"
+    recommendations, llm_used, model_used = call_llm(prompt, llm_provider, req.model)
     
     return SecurityResponse(
         vulnerabilities=vuln_summary,
         recommendations=recommendations,
-        model=req.model or DEFAULT_MODEL
+        model=model_used,
+        llm=llm_used
     )

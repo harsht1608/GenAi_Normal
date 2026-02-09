@@ -1,14 +1,106 @@
 import streamlit as st
 import requests
 
+# st.set_page_config(layout="wide")
+
+
 # FastAPI backend URL
 FASTAPI_URL = "http://localhost:8000"  # Update if running elsewhere
 
 st.set_page_config(page_title="AI-Powered DevOps Assistant", page_icon="🤖", layout="centered")
 st.title("🤖 AI-Powered DevOps Assistant")
 
-# Main tabs for different features
-tab1, tab2 = st.tabs(["💬 Chatbot", "🛠️ DevOps Helpers"])
+# # LLM Selector (Sidebar)
+# selected_llm = st.sidebar.selectbox(
+#     "🤖 Select LLM:",
+#     ["🟡 GROQ", "🔵 OpenAI", "🔴 Gemini"],
+#     index=0
+# )
+
+# # Map display names to backend LLM identifiers
+# llm_map = {
+#     "GROQ": "groq",
+#     "OpenAI": "openai",
+#     "Gemini": "gemini"
+# }
+
+# # Get the selected LLM identifier
+# current_llm = llm_map[selected_llm]
+
+# # Main tabs for different features
+# tab1, tab2 = st.tabs(["💬 Chatbot", "🛠️ DevOps Helpers"])
+
+# -------------------------------------------------------------------------------------------
+
+
+# ---------- CUSTOM CSS ----------
+st.markdown("""
+<style>
+.top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.llm-switch label {
+    display: none;
+}
+
+.llm-switch div[role="radiogroup"] {
+    background: rgba(255,255,255,0.08);
+    padding: 6px;
+    border-radius: 30px;
+    display: flex;
+    gap: 6px;
+}
+
+.llm-switch div[role="radio"] {
+    border-radius: 20px;
+    padding: 6px 16px;
+    cursor: pointer;
+    color: #bbb;
+    transition: all 0.3s ease;
+}
+
+.llm-switch div[aria-checked="true"] {
+    background: rgba(255,255,255,0.25);
+    color: white;
+    font-weight: 600;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ---------- TOP BAR ----------
+left, right = st.columns([5, 2])
+
+with left:
+    tab1, tab2 = st.tabs(["💬 Chatbot", "🛠️ DevOps Helpers"])
+
+with right:
+    st.markdown('<div class="llm-switch">', unsafe_allow_html=True)
+    selected_llm = st.radio(
+        "",
+        ["GROQ", "OpenAI", "Gemini"],
+        horizontal=True
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ---------- LLM MAP ----------
+llm_map = {
+    "GROQ": "groq",
+    "OpenAI": "openai",
+    "Gemini": "gemini"
+}
+
+current_llm = llm_map[selected_llm]
+
+# ---------- TAB CONTENT ----------
+# with tab1:
+#     st.write(f"### Chatbot (Using **{current_llm.upper()}**)")
+
+# with tab2:
+#     st.write(f"### DevOps Helpers (Using **{current_llm.upper()}**)")
 
 # --- TAB 1: Chatbot ---
 with tab1:
@@ -20,7 +112,7 @@ with tab1:
             try:
                 response = requests.post(
                     f"{FASTAPI_URL}/ask-gemini",
-                    json={"prompt": user_prompt}
+                    json={"prompt": user_prompt, "llm": current_llm}
                 )
                 response.raise_for_status()
                 ai_response = response.json().get("response", "")
@@ -75,7 +167,7 @@ with tab2:
                     with st.spinner("Analyzing..."):
                         response = requests.post(
                             f"{FASTAPI_URL}/{endpoint}",
-                            json={"content": content}
+                            json={"content": content, "llm": current_llm}
                         )
                     response.raise_for_status()
                     suggestions = response.json().get("suggestions", "")
@@ -125,7 +217,7 @@ with tab2:
                     with st.spinner("Generating..."):
                         response = requests.post(
                             f"{FASTAPI_URL}/{endpoint}",
-                            json={"description": description}
+                            json={"description": description, "llm": current_llm}
                         )
                     response.raise_for_status()
                     generated_code = response.json().get("code", "")
@@ -169,7 +261,7 @@ with tab2:
                     with st.spinner("Scanning for vulnerabilities..."):
                         response = requests.post(
                             f"{FASTAPI_URL}/scan-security",
-                            json={"requirements": requirements}
+                            json={"requirements": requirements, "llm": current_llm}
                         )
                     response.raise_for_status()
                     result = response.json()
