@@ -48,6 +48,8 @@ numpy==2.2.1
 packaging==24.2
 pandas==2.2.3
 parsel==1.9.1
+openai
+safety==3.2.14
 pillow==11.1.0
 Protego==0.3.1
 proto-plus==1.25.0
